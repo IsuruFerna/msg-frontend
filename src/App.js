@@ -10,6 +10,7 @@ import { Button, Col, Container, Form, ListGroup, Row } from "react-bootstrap";
 function App() {
    //  var socket = SockJS("http://localhost/8080");
    const [groupChats, setGroupChats] = useState([]);
+   const [privateChats, setPrivateChats] = useState(new Map());
    const [stompClient, setStompClient] = useState(null);
 
    const SOCKET_URL = "http://localhost:8080/ws-chat/";
@@ -33,10 +34,38 @@ function App() {
       }
    };
 
+   const onPrivateMessageReceived = (payload) => {
+      let payloadData = JSON.parse(payload.body);
+      console.log("this is payload: ", payloadData);
+
+      let exsistingChat = privateChats.get(payloadData.sender);
+
+      if (exsistingChat) {
+         exsistingChat.push(payloadData);
+         setPrivateChats(new Map(privateChats));
+      } else {
+         exsistingChat = [payloadData];
+      }
+      privateChats.set(payloadData.sender, exsistingChat);
+      setPrivateChats(new Map(privateChats));
+
+      // avoid duplicate messages
+      const msgExsisits = groupChats.some(
+         (msg) =>
+            msg.timestamp === payloadData.timestamp &&
+            msg.content === payloadData.content
+      );
+
+      if (!msgExsisits) {
+         groupChats.push(payloadData);
+         setGroupChats([...groupChats]);
+      }
+   };
+
    const [messages, setMessages] = useState([]);
    const [user, setUser] = useState({
       username: "bob",
-      receiverName: "foo",
+      receiver: selectedUser,
       connected: false,
       message: "",
    });
@@ -63,7 +92,12 @@ function App() {
             connected: true,
          });
 
-         client.subscribe("/topic/group", onGroupMessageReceived);
+         if (selectedUser === "group-chat") {
+            client.subscribe("/topic/group", onGroupMessageReceived);
+         } else {
+            client.subscribe("/topic/private/" + selectedUser);
+         }
+
          setStompClient(client);
       });
    };
@@ -72,7 +106,7 @@ function App() {
       if (stompClient) {
          let chatMessage = {
             sender: "bob",
-            receiverName: "foo",
+            receiver: selectedUser,
             content: user.message,
          };
 
@@ -91,11 +125,41 @@ function App() {
       }
    };
 
+   const sendPrivateMessage = () => {
+      if (stompClient && user.receiver) {
+         let chatMessage = {
+            sender: "bob",
+            receiver: selectedUser,
+            content: user.message,
+         };
+
+         const headers = {};
+         headers["Authentication"] = "Bearer " + "token";
+
+         privateChats.get(user.receiver).push(chatMessage);
+         setPrivateChats(new Map(privateChats));
+
+         // setGroupChats(groupChats.push(chatMessage));
+
+         console.log("updated chat: ", privateChats);
+         stompClient.send(
+            "/app/sendMessageTo",
+            headers,
+            JSON.stringify(chatMessage)
+         );
+         setUser({ ...user, message: "" });
+      }
+   };
+
    const handleSubmit = (e) => {
       e.preventDefault();
 
       if (stompClient) {
-         sendGroupMessage();
+         if (selectedUser === "group-chat") {
+            sendGroupMessage();
+         } else {
+            sendPrivateMessage();
+         }
       } else {
          console.log("stomp client is null");
       }
@@ -110,6 +174,10 @@ function App() {
 
    useEffect(() => {
       connect();
+
+      if (!privateChats.has(user.receiver)) {
+         privateChats.set(user.receiver, []);
+      }
 
       return () => {
          disconnect();
@@ -132,7 +200,7 @@ function App() {
                                     as="li"
                                     key={index}
                                     onClick={() => {
-                                       // console.log("setting new user: ", user);
+                                       console.log("setting new user: ", user);
                                        setSelectedUser(user);
                                     }}
                                  >
@@ -156,12 +224,16 @@ function App() {
                         <Row className="h-75">
                            Chat space
                            <ul>
-                              {groupChats.length > 0 ? (
-                                 groupChats.map((msg, index) => (
-                                    <li key={index}>{msg.content}</li>
-                                 ))
+                              {selectedUser === "group-chat" ? (
+                                 groupChats.length > 0 ? (
+                                    groupChats.map((msg, index) => (
+                                       <li key={index}>{msg.content}</li>
+                                    ))
+                                 ) : (
+                                    <p>No group messages</p>
+                                 )
                               ) : (
-                                 <p>No group messages</p>
+                                 <p>This is private chat</p>
                               )}
                            </ul>
                         </Row>
