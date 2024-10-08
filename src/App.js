@@ -1,16 +1,13 @@
 import "./App.css";
 import SockJS from "sockjs-client";
-import SockJsClient from "react-stomp";
 import { over } from "stompjs";
 import { useEffect, useState } from "react";
-// import chatAPI from "./services/chatAPI";
-import Messages from "./components/Messages";
 import { Button, Col, Container, Form, ListGroup, Row } from "react-bootstrap";
 
 function App() {
    //  var socket = SockJS("http://localhost/8080");
    const [groupChats, setGroupChats] = useState([]);
-   const [privateChats, setPrivateChats] = useState([]);
+   const [privateChats, setPrivateChats] = useState(new Map());
    const [stompClient, setStompClient] = useState(null);
 
    const SOCKET_URL = "http://localhost:8080/ws-chat/";
@@ -142,20 +139,24 @@ function App() {
       console.log("receiving pvt msgs::::");
       console.log("previous msg: ", privateChats);
 
-      // avoid duplicate messages
-      const msgExsisits = privateChats.some(
-         (msg) =>
-            msg.timestamp === payloadData.timestamp &&
-            msg.content === payloadData.content
-      );
+      let exsistingChat = privateChats.get(payloadData.receiver);
 
-      if (!msgExsisits) {
-         privateChats.push(payloadData);
-         setPrivateChats([...privateChats]);
+      if (exsistingChat) {
+         // avoid duplicate messages
+         const msgExsisits = exsistingChat.some(
+            (msg) => msg.timestamp === payloadData.timestamp
+         );
+
+         if (!msgExsisits) {
+            exsistingChat.push(payloadData);
+            setPrivateChats(new Map(privateChats));
+         }
+      } else {
+         exsistingChat = [payloadData];
       }
-      console.log("updated messages: ", privateChats);
+      privateChats.set(payloadData.receiver, exsistingChat);
 
-      // console.log("this is pvt msg: ", privateChats);
+      console.log("this is pvt msg: ", privateChats);
    };
 
    const handleSubmit = (e) => {
@@ -179,19 +180,13 @@ function App() {
       });
    };
 
-   // useEffect(() => {
-   //    setUser({
-   //       ...user,
-   //       receiver: selectedUser,
-   //    });
-   // }, [selectedUser]);
-
    useEffect(() => {
       connect();
 
-      // if (!privateChats.has(user.receiver)) {
-      //    privateChats.set(user.receiver, []);
-      // }
+      // create emply array if there's no data related to the selected user
+      if (selectedUser !== "group-chat" && !privateChats.has(selectedUser)) {
+         privateChats.set(selectedUser, []);
+      }
 
       return () => {
          disconnect();
@@ -221,20 +216,10 @@ function App() {
                                     {user}
                                  </ListGroup.Item>
                               ))}
-                           {/* <ListGroup.Item as="li">
-                              Group message
-                           </ListGroup.Item>
-                           <ListGroup.Item as="li">
-                              Cras justo odio
-                           </ListGroup.Item>
-                           <ListGroup.Item as="li">
-                              Cras justo odio
-                           </ListGroup.Item> */}
                         </ListGroup>
                      </Col>
                      <Col className="100 bg-white" md={8}>
                         <h1>Chat</h1>
-
                         <Row className="h-75">
                            Chat space
                            <ul>
@@ -246,12 +231,13 @@ function App() {
                                  ) : (
                                     <p>No group messages</p>
                                  )
-                              ) : privateChats.length > 0 ? (
-                                 privateChats.map((msg, index) => (
-                                    <li key={index}>{msg.content}</li>
-                                 ))
                               ) : (
-                                 <p>No messages</p>
+                                 privateChats.get(selectedUser) &&
+                                 [...privateChats.get(selectedUser)].map(
+                                    (msg, index) => (
+                                       <li key={index}>{msg.content}</li>
+                                    )
+                                 )
                               )}
                            </ul>
                         </Row>
