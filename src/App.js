@@ -1,10 +1,7 @@
 import "./App.css";
 import SockJS from "sockjs-client";
-import SockJsClient from "react-stomp";
 import { over } from "stompjs";
 import { useEffect, useState } from "react";
-// import chatAPI from "./services/chatAPI";
-import Messages from "./components/Messages";
 import { Button, Col, Container, Form, ListGroup, Row } from "react-bootstrap";
 
 function App() {
@@ -17,54 +14,9 @@ function App() {
    const USER_NAMES = ["Ara", "Euna", "Reba", "group-chat"];
    const [selectedUser, setSelectedUser] = useState("group-chat");
 
-   const onGroupMessageReceived = (payload) => {
-      let payloadData = JSON.parse(payload.body);
-      console.log("this is payload: ", payloadData);
-
-      // avoid duplicate messages
-      const msgExsisits = groupChats.some(
-         (msg) =>
-            msg.timestamp === payloadData.timestamp &&
-            msg.content === payloadData.content
-      );
-
-      if (!msgExsisits) {
-         groupChats.push(payloadData);
-         setGroupChats([...groupChats]);
-      }
-   };
-
-   const onPrivateMessageReceived = (payload) => {
-      let payloadData = JSON.parse(payload.body);
-      console.log("this is payload: ", payloadData);
-
-      let exsistingChat = privateChats.get(payloadData.sender);
-
-      if (exsistingChat) {
-         exsistingChat.push(payloadData);
-         setPrivateChats(new Map(privateChats));
-      } else {
-         exsistingChat = [payloadData];
-      }
-      privateChats.set(payloadData.sender, exsistingChat);
-      setPrivateChats(new Map(privateChats));
-
-      // avoid duplicate messages
-      const msgExsisits = groupChats.some(
-         (msg) =>
-            msg.timestamp === payloadData.timestamp &&
-            msg.content === payloadData.content
-      );
-
-      if (!msgExsisits) {
-         groupChats.push(payloadData);
-         setGroupChats([...groupChats]);
-      }
-   };
-
    const [messages, setMessages] = useState([]);
    const [user, setUser] = useState({
-      username: "bob",
+      sender: "bob",
       receiver: selectedUser,
       connected: false,
       message: "",
@@ -84,22 +36,33 @@ function App() {
       const headers = {};
       headers["Authentication"] = "Bearer " + "token";
 
-      client.connect(headers, function (frame) {
-         console.log("Connected: " + frame);
+      client.connect(
+         headers,
+         function (frame) {
+            console.log("Connected: " + frame);
 
-         setUser({
-            ...user,
-            connected: true,
-         });
+            setUser({
+               ...user,
+               connected: true,
+            });
 
-         if (selectedUser === "group-chat") {
-            client.subscribe("/topic/group", onGroupMessageReceived);
-         } else {
-            client.subscribe("/topic/private/" + selectedUser);
+            console.log("user details: ", user.sender, user.receiver);
+
+            // client.subscribe("/topic/private/" + topic, onPrivateMessageReceived);
+
+            if (selectedUser === "group-chat") {
+               client.subscribe("/topic/group", onGroupMessageReceived);
+            } else {
+               console.log("subscribing to receive pvt msg: ");
+               client.subscribe("/topic/private", onPrivateMessageReceived);
+            }
+
+            setStompClient(client);
+         },
+         function (error) {
+            console.log("Connection error: ", error);
          }
-
-         setStompClient(client);
-      });
+      );
    };
 
    const sendGroupMessage = () => {
@@ -126,7 +89,7 @@ function App() {
    };
 
    const sendPrivateMessage = () => {
-      if (stompClient && user.receiver) {
+      if (stompClient && selectedUser !== "group-chat") {
          let chatMessage = {
             sender: "bob",
             receiver: selectedUser,
@@ -136,12 +99,12 @@ function App() {
          const headers = {};
          headers["Authentication"] = "Bearer " + "token";
 
-         privateChats.get(user.receiver).push(chatMessage);
-         setPrivateChats(new Map(privateChats));
+         // privateChats.get(user.receiver).push(chatMessage);
+         // setPrivateChats(new Map(privateChats));
 
-         // setGroupChats(groupChats.push(chatMessage));
+         // setGroupChats(privateChats.push(chatMessage));
 
-         console.log("updated chat: ", privateChats);
+         console.log("updated chat: sending", privateChats);
          stompClient.send(
             "/app/sendMessageTo",
             headers,
@@ -149,6 +112,51 @@ function App() {
          );
          setUser({ ...user, message: "" });
       }
+   };
+
+   const onGroupMessageReceived = (payload) => {
+      let payloadData = JSON.parse(payload.body);
+      console.log("this is payload group: ", payloadData);
+
+      // avoid duplicate messages
+      const msgExsisits = groupChats.some(
+         (msg) =>
+            msg.timestamp === payloadData.timestamp &&
+            msg.content === payloadData.content
+      );
+
+      if (!msgExsisits) {
+         groupChats.push(payloadData);
+         setGroupChats([...groupChats]);
+      }
+   };
+
+   const onPrivateMessageReceived = (payload) => {
+      console.log("subscribed to private msg:");
+      let payloadData = JSON.parse(payload.body);
+      console.log("this is payload private: ", payloadData);
+
+      console.log("receiving pvt msgs::::");
+      console.log("previous msg: ", privateChats);
+
+      let exsistingChat = privateChats.get(payloadData.receiver);
+
+      if (exsistingChat) {
+         // avoid duplicate messages
+         const msgExsisits = exsistingChat.some(
+            (msg) => msg.timestamp === payloadData.timestamp
+         );
+
+         if (!msgExsisits) {
+            exsistingChat.push(payloadData);
+            setPrivateChats(new Map(privateChats));
+         }
+      } else {
+         exsistingChat = [payloadData];
+      }
+      privateChats.set(payloadData.receiver, exsistingChat);
+
+      console.log("this is pvt msg: ", privateChats);
    };
 
    const handleSubmit = (e) => {
@@ -175,14 +183,15 @@ function App() {
    useEffect(() => {
       connect();
 
-      if (!privateChats.has(user.receiver)) {
-         privateChats.set(user.receiver, []);
+      // create emply array if there's no data related to the selected user
+      if (selectedUser !== "group-chat" && !privateChats.has(selectedUser)) {
+         privateChats.set(selectedUser, []);
       }
 
       return () => {
          disconnect();
       };
-   }, []);
+   }, [selectedUser]);
 
    return (
       <div className="App">
@@ -207,20 +216,10 @@ function App() {
                                     {user}
                                  </ListGroup.Item>
                               ))}
-                           {/* <ListGroup.Item as="li">
-                              Group message
-                           </ListGroup.Item>
-                           <ListGroup.Item as="li">
-                              Cras justo odio
-                           </ListGroup.Item>
-                           <ListGroup.Item as="li">
-                              Cras justo odio
-                           </ListGroup.Item> */}
                         </ListGroup>
                      </Col>
                      <Col className="100 bg-white" md={8}>
                         <h1>Chat</h1>
-
                         <Row className="h-75">
                            Chat space
                            <ul>
@@ -233,7 +232,12 @@ function App() {
                                     <p>No group messages</p>
                                  )
                               ) : (
-                                 <p>This is private chat</p>
+                                 privateChats.get(selectedUser) &&
+                                 [...privateChats.get(selectedUser)].map(
+                                    (msg, index) => (
+                                       <li key={index}>{msg.content}</li>
+                                    )
+                                 )
                               )}
                            </ul>
                         </Row>
