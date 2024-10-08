@@ -13,10 +13,24 @@ function App() {
    const [stompClient, setStompClient] = useState(null);
 
    const SOCKET_URL = "http://localhost:8080/ws-chat/";
+   const USER_NAMES = ["Ara", "Euna", "Reba", "group-chat"];
+   const [selectedUser, setSelectedUser] = useState("group-chat");
 
    const onGroupMessageReceived = (payload) => {
       let payloadData = JSON.parse(payload.body);
-      setGroupChats([payloadData]);
+      console.log("this is payload: ", payloadData);
+
+      // avoid duplicate messages
+      const msgExsisits = groupChats.some(
+         (msg) =>
+            msg.timestamp === payloadData.timestamp &&
+            msg.content === payloadData.content
+      );
+
+      if (!msgExsisits) {
+         groupChats.push(payloadData);
+         setGroupChats([...groupChats]);
+      }
    };
 
    const [messages, setMessages] = useState([]);
@@ -65,7 +79,7 @@ function App() {
          const headers = {};
          headers["Authentication"] = "Bearer " + "token";
 
-         setGroupChats(groupChats.push(chatMessage));
+         // setGroupChats(groupChats.push(chatMessage));
 
          console.log("updated chat: ", groupChats);
          stompClient.send(
@@ -109,23 +123,48 @@ function App() {
                <Container fluid className="bg-primary">
                   <Row className="vh-100 ">
                      <Col md={4}>
-                        <h2>Friends</h2>
+                        <h2>Chat</h2>
                         <ListGroup as="ol" numbered>
-                           <ListGroup.Item as="li">
-                              Cras justo odio
+                           {USER_NAMES &&
+                              USER_NAMES.map((user, index) => (
+                                 <ListGroup.Item
+                                    style={{ cursor: "pointer" }}
+                                    as="li"
+                                    key={index}
+                                    onClick={() => {
+                                       // console.log("setting new user: ", user);
+                                       setSelectedUser(user);
+                                    }}
+                                 >
+                                    {user}
+                                 </ListGroup.Item>
+                              ))}
+                           {/* <ListGroup.Item as="li">
+                              Group message
                            </ListGroup.Item>
                            <ListGroup.Item as="li">
                               Cras justo odio
                            </ListGroup.Item>
                            <ListGroup.Item as="li">
                               Cras justo odio
-                           </ListGroup.Item>
+                           </ListGroup.Item> */}
                         </ListGroup>
                      </Col>
                      <Col className="100 bg-white" md={8}>
                         <h1>Chat</h1>
 
-                        <Row className="h-75">Chat space</Row>
+                        <Row className="h-75">
+                           Chat space
+                           <ul>
+                              {groupChats.length > 0 ? (
+                                 groupChats.map((msg, index) => (
+                                    <li key={index}>{msg.content}</li>
+                                 ))
+                              ) : (
+                                 <p>No group messages</p>
+                              )}
+                           </ul>
+                        </Row>
                         <Row className="h-25">
                            <Form onSubmit={handleSubmit}>
                               <div className="d-flex">
